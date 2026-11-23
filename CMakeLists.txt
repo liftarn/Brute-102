@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Brute102 VERSION 1.0.0 LANGUAGES CXX)
+project(Brute102 VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Point JUCE_DIR to a local JUCE checkout or let FetchContent pull JUCE 8.0.4
+# Point JUCE_DIR to a local JUCE checkout or let FetchContent pull JUCE 8.0.13
 if(DEFINED JUCE_DIR)
     add_subdirectory(${JUCE_DIR} JUCE)
 else()
