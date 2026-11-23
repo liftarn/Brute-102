@@ -18,35 +18,43 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Cache JUCE FetchContent
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/juce
-          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
+          key: ${{ runner.os }}-juce-${{ hashFiles('CMakeLists.txt', 'juce/CMakeLists.txt') }}
 
       - name: Configure CMake
         run: |
-          cmake -S juce -B juce/build \
+          if [ -f "juce/CMakeLists.txt" ]; then
+            SRC_DIR="juce"
+          elif [ -f "CMakeLists.txt" ]; then
+            SRC_DIR="."
+          else
+            echo "::error::Could not find CMakeLists.txt in repository root or juce/"
+            exit 1
+          fi
+          cmake -S "$SRC_DIR" -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
             -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
 
       - name: Build Brute-102
-        run: cmake --build juce/build --config Release --parallel "$(sysctl -n hw.ncpu)"
+        run: cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
 
       - name: Package macOS release archive
         run: |
           mkdir -p release-assets Brute-102-macos-universal
-          cp -Rp juce/build/Brute102_artefacts/Release/VST3/* Brute-102-macos-universal/
-          cp -Rp juce/build/Brute102_artefacts/Release/AU/* Brute-102-macos-universal/
-          cp -Rp juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-macos-universal/
+          cp -Rp build/*_artefacts/Release/VST3/* Brute-102-macos-universal/
+          cp -Rp build/*_artefacts/Release/AU/* Brute-102-macos-universal/
+          cp -Rp build/*_artefacts/Release/Standalone/* Brute-102-macos-universal/
           ditto -c -k --sequesterRsrc --keepParent Brute-102-macos-universal release-assets/Brute-102-macos-universal.zip
 
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Brute-102-macos-universal
           path: release-assets/Brute-102-macos-universal.zip
@@ -56,34 +64,42 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Cache JUCE FetchContent
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/juce
-          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
+          key: ${{ runner.os }}-juce-${{ hashFiles('CMakeLists.txt', 'juce/CMakeLists.txt') }}
 
       - name: Configure CMake
         shell: pwsh
         run: |
+          if (Test-Path "juce/CMakeLists.txt") {
+            $srcDir = "juce"
+          } elseif (Test-Path "CMakeLists.txt") {
+            $srcDir = "."
+          } else {
+            Write-Error "Could not find CMakeLists.txt in repository root or juce/"
+            exit 1
+          }
           $juceCache = ($env:GITHUB_WORKSPACE -replace '\\', '/') + "/.cache/juce"
-          cmake -S juce -B juce/build -A x64 -DFETCHCONTENT_BASE_DIR="$juceCache"
+          cmake -S $srcDir -B build -A x64 -DFETCHCONTENT_BASE_DIR="$juceCache"
 
       - name: Build Brute-102
         shell: pwsh
-        run: cmake --build juce/build --config Release --parallel
+        run: cmake --build build --config Release --parallel
 
       - name: Package Windows release archive
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets, Brute-102-windows-x64 | Out-Null
-          Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/VST3/* Brute-102-windows-x64/
-          Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-windows-x64/
+          Copy-Item -Recurse -Force build/*_artefacts/Release/VST3/* Brute-102-windows-x64/
+          Copy-Item -Recurse -Force build/*_artefacts/Release/Standalone/* Brute-102-windows-x64/
           Compress-Archive -Path Brute-102-windows-x64 -DestinationPath release-assets/Brute-102-windows-x64.zip -Force
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Brute-102-windows-x64
           path: release-assets/Brute-102-windows-x64.zip
@@ -93,7 +109,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install JUCE Linux dependencies
         run: |
@@ -115,29 +131,37 @@ jobs:
             libxrender-dev
 
       - name: Cache JUCE FetchContent
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/juce
-          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
+          key: ${{ runner.os }}-juce-${{ hashFiles('CMakeLists.txt', 'juce/CMakeLists.txt') }}
 
       - name: Configure CMake
         run: |
-          cmake -S juce -B juce/build \
+          if [ -f "juce/CMakeLists.txt" ]; then
+            SRC_DIR="juce"
+          elif [ -f "CMakeLists.txt" ]; then
+            SRC_DIR="."
+          else
+            echo "::error::Could not find CMakeLists.txt in repository root or juce/"
+            exit 1
+          fi
+          cmake -S "$SRC_DIR" -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
 
       - name: Build Brute-102
-        run: cmake --build juce/build --config Release --parallel "$(nproc)"
+        run: cmake --build build --config Release --parallel "$(nproc)"
 
       - name: Package Linux release archive
         run: |
           mkdir -p release-assets Brute-102-linux-x86_64
-          cp -a juce/build/Brute102_artefacts/Release/VST3/* Brute-102-linux-x86_64/
-          cp -a juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-linux-x86_64/
+          cp -a build/*_artefacts/Release/VST3/* Brute-102-linux-x86_64/
+          cp -a build/*_artefacts/Release/Standalone/* Brute-102-linux-x86_64/
           tar -czf release-assets/Brute-102-linux-x86_64.tar.gz Brute-102-linux-x86_64
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Brute-102-linux-x86_64
           path: release-assets/Brute-102-linux-x86_64.tar.gz
@@ -151,7 +175,7 @@ jobs:
       contents: write
     steps:
       - name: Download built artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
