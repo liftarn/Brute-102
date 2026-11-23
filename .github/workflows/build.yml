@@ -1,207 +1,178 @@
-# GitLab CI/CD pipeline for Brute-102 (JUCE C++20 VST3/AU/Standalone)
-#
-# Runner notes:
-# - Linux, upload, and release jobs use standard Docker runners (GitLab SaaS Linux or self-hosted Docker).
-# - macOS and Windows jobs target GitLab SaaS shared runner tags by default.
-#   If you use self-hosted runners, update `tags` (and remove `image` on macOS if bare-metal).
-# - Pushing a Git tag (e.g. `v1.0.0`) builds all platforms, uploads archives to the
-#   GitLab Generic Package Registry, and publishes a GitLab Release.
+name: Build & Release Brute-102
 
-workflow:
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
-      when: never
-    - if: $CI_COMMIT_BRANCH
-    - if: $CI_COMMIT_TAG
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - "v*"
+      - "[0-9]*"
+  pull_request:
+  workflow_dispatch:
 
-stages:
-  - build
-  - upload
-  - release
+permissions:
+  contents: read
 
-variables:
-  GIT_DEPTH: "1"
-  CMAKE_BUILD_TYPE: "Release"
+jobs:
+  build-macos:
+    name: macOS Universal (VST3 / AU / Standalone)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# ---------------------------------------------------------------------------
-# JUCE C++20 Plugin — Linux (VST3 + Standalone)
-# ---------------------------------------------------------------------------
+      - name: Cache JUCE FetchContent
+        uses: actions/cache@v4
+        with:
+          path: .cache/juce
+          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
 
-plugin:linux:
-  stage: build
-  image: ubuntu:24.04
-  variables:
-    DEBIAN_FRONTEND: "noninteractive"
-  cache:
-    key: "juce-8.0.13-linux"
-    paths:
-      - .cache/juce/
-  before_script:
-    - apt-get update
-    - >
-      apt-get install -y --no-install-recommends
-      build-essential
-      ca-certificates
-      cmake
-      git
-      pkg-config
-      libasound2-dev
-      libfontconfig1-dev
-      libfreetype-dev
-      libgl1-mesa-dev
-      libx11-dev
-      libxcomposite-dev
-      libxcursor-dev
-      libxext-dev
-      libxinerama-dev
-      libxrandr-dev
-      libxrender-dev
-  script:
-    - >
-      cmake -S juce -B juce/build
-      -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE
-      -DFETCHCONTENT_BASE_DIR="$CI_PROJECT_DIR/.cache/juce"
-    - cmake --build juce/build --config $CMAKE_BUILD_TYPE --parallel "$(nproc)"
-    - mkdir -p release-assets Brute-102-linux-x86_64
-    - cp -a juce/build/Brute102_artefacts/Release/VST3/* Brute-102-linux-x86_64/
-    - cp -a juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-linux-x86_64/
-    - tar -czf release-assets/Brute-102-linux-x86_64.tar.gz Brute-102-linux-x86_64
-  artifacts:
-    name: "Brute-102-linux-$CI_COMMIT_SHORT_SHA"
-    expire_in: 30 days
-    paths:
-      - release-assets/Brute-102-linux-x86_64.tar.gz
-      - juce/build/Brute102_artefacts/Release/VST3/
-      - juce/build/Brute102_artefacts/Release/Standalone/
+      - name: Configure CMake
+        run: |
+          cmake -S juce -B juce/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
+            -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
 
-# ---------------------------------------------------------------------------
-# JUCE C++20 Plugin — macOS Universal Binary (VST3 + AU + Standalone)
-# ---------------------------------------------------------------------------
+      - name: Build Brute-102
+        run: cmake --build juce/build --config Release --parallel "$(sysctl -n hw.ncpu)"
 
-plugin:macos:
-  stage: build
-  tags:
-    - saas-macos-medium-m1
-  image: macos-15-xcode-16
-  cache:
-    key: "juce-8.0.13-macos"
-    paths:
-      - .cache/juce/
-  script:
-    - >
-      cmake -S juce -B juce/build
-      -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE
-      -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-      -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
-      -DFETCHCONTENT_BASE_DIR="$CI_PROJECT_DIR/.cache/juce"
-    - cmake --build juce/build --config $CMAKE_BUILD_TYPE --parallel "$(sysctl -n hw.ncpu)"
-    - mkdir -p release-assets Brute-102-macos-universal
-    - cp -Rp juce/build/Brute102_artefacts/Release/VST3/* Brute-102-macos-universal/
-    - cp -Rp juce/build/Brute102_artefacts/Release/AU/* Brute-102-macos-universal/
-    - cp -Rp juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-macos-universal/
-    - ditto -c -k --sequesterRsrc --keepParent Brute-102-macos-universal release-assets/Brute-102-macos-universal.zip
-  artifacts:
-    name: "Brute-102-macos-$CI_COMMIT_SHORT_SHA"
-    expire_in: 30 days
-    paths:
-      - release-assets/Brute-102-macos-universal.zip
-      - juce/build/Brute102_artefacts/Release/VST3/
-      - juce/build/Brute102_artefacts/Release/AU/
-      - juce/build/Brute102_artefacts/Release/Standalone/
+      - name: Package macOS release archive
+        run: |
+          mkdir -p release-assets Brute-102-macos-universal
+          cp -Rp juce/build/Brute102_artefacts/Release/VST3/* Brute-102-macos-universal/
+          cp -Rp juce/build/Brute102_artefacts/Release/AU/* Brute-102-macos-universal/
+          cp -Rp juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-macos-universal/
+          ditto -c -k --sequesterRsrc --keepParent Brute-102-macos-universal release-assets/Brute-102-macos-universal.zip
 
-# ---------------------------------------------------------------------------
-# JUCE C++20 Plugin — Windows x64 (VST3 + Standalone)
-# ---------------------------------------------------------------------------
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Brute-102-macos-universal
+          path: release-assets/Brute-102-macos-universal.zip
 
-plugin:windows:
-  stage: build
-  tags:
-    - saas-windows-medium-amd64
-  cache:
-    key: "juce-8.0.13-windows"
-    paths:
-      - .cache/juce/
-  script:
-    - cmake -S juce -B juce/build -A x64 -DFETCHCONTENT_BASE_DIR="$env:CI_PROJECT_DIR\.cache\juce"
-    - cmake --build juce/build --config $env:CMAKE_BUILD_TYPE --parallel
-    - New-Item -ItemType Directory -Force -Path release-assets, Brute-102-windows-x64 | Out-Null
-    - Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/VST3/* Brute-102-windows-x64/
-    - Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-windows-x64/
-    - Compress-Archive -Path Brute-102-windows-x64 -DestinationPath release-assets/Brute-102-windows-x64.zip -Force
-  artifacts:
-    name: "Brute-102-windows-$CI_COMMIT_SHORT_SHA"
-    expire_in: 30 days
-    paths:
-      - release-assets/Brute-102-windows-x64.zip
-      - juce/build/Brute102_artefacts/Release/VST3/
-      - juce/build/Brute102_artefacts/Release/Standalone/
+  build-windows:
+    name: Windows x64 (VST3 / Standalone)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# ---------------------------------------------------------------------------
-# Upload Packages & Publish GitLab Release (runs on Git tags)
-# ---------------------------------------------------------------------------
+      - name: Cache JUCE FetchContent
+        uses: actions/cache@v4
+        with:
+          path: .cache/juce
+          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
 
-release:upload:
-  stage: upload
-  image: curlimages/curl:latest
-  rules:
-    - if: $CI_COMMIT_TAG
-  needs:
-    - job: plugin:linux
-      artifacts: true
-    - job: plugin:macos
-      artifacts: true
-    - job: plugin:windows
-      artifacts: true
-  script:
-    - >
-      PACKAGE_BASE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/brute-102/${CI_COMMIT_TAG}"
-    - >
-      curl --fail --show-error --silent
-      --header "JOB-TOKEN: ${CI_JOB_TOKEN}"
-      --upload-file release-assets/Brute-102-linux-x86_64.tar.gz
-      "${PACKAGE_BASE_URL}/Brute-102-${CI_COMMIT_TAG}-linux-x86_64.tar.gz"
-    - >
-      curl --fail --show-error --silent
-      --header "JOB-TOKEN: ${CI_JOB_TOKEN}"
-      --upload-file release-assets/Brute-102-macos-universal.zip
-      "${PACKAGE_BASE_URL}/Brute-102-${CI_COMMIT_TAG}-macos-universal.zip"
-    - >
-      curl --fail --show-error --silent
-      --header "JOB-TOKEN: ${CI_JOB_TOKEN}"
-      --upload-file release-assets/Brute-102-windows-x64.zip
-      "${PACKAGE_BASE_URL}/Brute-102-${CI_COMMIT_TAG}-windows-x64.zip"
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          $juceCache = ($env:GITHUB_WORKSPACE -replace '\\', '/') + "/.cache/juce"
+          cmake -S juce -B juce/build -A x64 -DFETCHCONTENT_BASE_DIR="$juceCache"
 
-release:publish:
-  stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
-  rules:
-    - if: $CI_COMMIT_TAG
-  needs:
-    - job: release:upload
-  script:
-    - echo "Publishing Brute-102 release ${CI_COMMIT_TAG}"
+      - name: Build Brute-102
+        shell: pwsh
+        run: cmake --build juce/build --config Release --parallel
+
+      - name: Package Windows release archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets, Brute-102-windows-x64 | Out-Null
+          Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/VST3/* Brute-102-windows-x64/
+          Copy-Item -Recurse -Force juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-windows-x64/
+          Compress-Archive -Path Brute-102-windows-x64 -DestinationPath release-assets/Brute-102-windows-x64.zip -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Brute-102-windows-x64
+          path: release-assets/Brute-102-windows-x64.zip
+
+  build-linux:
+    name: Linux x86_64 (VST3 / Standalone)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install JUCE Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            pkg-config \
+            libasound2-dev \
+            libfontconfig1-dev \
+            libfreetype-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev
+
+      - name: Cache JUCE FetchContent
+        uses: actions/cache@v4
+        with:
+          path: .cache/juce
+          key: ${{ runner.os }}-juce-${{ hashFiles('juce/CMakeLists.txt') }}
+
+      - name: Configure CMake
+        run: |
+          cmake -S juce -B juce/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
+
+      - name: Build Brute-102
+        run: cmake --build juce/build --config Release --parallel "$(nproc)"
+
+      - name: Package Linux release archive
+        run: |
+          mkdir -p release-assets Brute-102-linux-x86_64
+          cp -a juce/build/Brute102_artefacts/Release/VST3/* Brute-102-linux-x86_64/
+          cp -a juce/build/Brute102_artefacts/Release/Standalone/* Brute-102-linux-x86_64/
+          tar -czf release-assets/Brute-102-linux-x86_64.tar.gz Brute-102-linux-x86_64
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Brute-102-linux-x86_64
+          path: release-assets/Brute-102-linux-x86_64.tar.gz
+
   release:
-    tag_name: "$CI_COMMIT_TAG"
-    name: "Brute-102 $CI_COMMIT_TAG"
-    description: |
-      Brute-102 $CI_COMMIT_TAG release builds.
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
-      ### Included Formats
-      - **macOS Universal (`arm64` + `x86_64`)**: VST3, AU, Standalone
-      - **Windows x64**: VST3, Standalone
-      - **Linux x86_64**: VST3, Standalone
-    assets:
-      links:
-        - name: "Brute-102-${CI_COMMIT_TAG}-macos-universal.zip"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/brute-102/${CI_COMMIT_TAG}/Brute-102-${CI_COMMIT_TAG}-macos-universal.zip"
-          filepath: "/Brute-102-${CI_COMMIT_TAG}-macos-universal.zip"
-          link_type: "package"
-        - name: "Brute-102-${CI_COMMIT_TAG}-windows-x64.zip"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/brute-102/${CI_COMMIT_TAG}/Brute-102-${CI_COMMIT_TAG}-windows-x64.zip"
-          filepath: "/Brute-102-${CI_COMMIT_TAG}-windows-x64.zip"
-          link_type: "package"
-        - name: "Brute-102-${CI_COMMIT_TAG}-linux-x86_64.tar.gz"
-          url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/brute-102/${CI_COMMIT_TAG}/Brute-102-${CI_COMMIT_TAG}-linux-x86_64.tar.gz"
-          filepath: "/Brute-102-${CI_COMMIT_TAG}-linux-x86_64.tar.gz"
-          link_type: "package"
+      - name: Prepare versioned release assets
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p release-files
+          mv artifacts/Brute-102-macos-universal.zip "release-files/Brute-102-${TAG}-macos-universal.zip"
+          mv artifacts/Brute-102-windows-x64.zip "release-files/Brute-102-${TAG}-windows-x64.zip"
+          mv artifacts/Brute-102-linux-x86_64.tar.gz "release-files/Brute-102-${TAG}-linux-x86_64.tar.gz"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-files/* --clobber
+          else
+            gh release create "$TAG" release-files/* \
+              --title "Brute-102 ${TAG}" \
+              --generate-notes
+          fi
