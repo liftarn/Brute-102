@@ -38,6 +38,7 @@ jobs:
           fi
           cmake -S "$SRC_DIR" -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBRUTE102_BUILD_VST2=OFF \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
             -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
@@ -48,6 +49,7 @@ jobs:
       - name: Package macOS release archive
         run: |
           mkdir -p release-assets Brute-102-macos-universal
+          for d in build/*_artefacts/Release/VST; do [ -d "$d" ] && cp -Rp "$d"/* Brute-102-macos-universal/; done
           cp -Rp build/*_artefacts/Release/VST3/* Brute-102-macos-universal/
           cp -Rp build/*_artefacts/Release/AU/* Brute-102-macos-universal/
           cp -Rp build/*_artefacts/Release/Standalone/* Brute-102-macos-universal/
@@ -84,7 +86,7 @@ jobs:
             exit 1
           }
           $juceCache = ($env:GITHUB_WORKSPACE -replace '\\', '/') + "/.cache/juce"
-          cmake -S $srcDir -B build -A x64 -DFETCHCONTENT_BASE_DIR="$juceCache"
+          cmake -S $srcDir -B build -A x64 -DBRUTE102_BUILD_VST2=OFF -DFETCHCONTENT_BASE_DIR="$juceCache"
 
       - name: Build Brute-102
         shell: pwsh
@@ -94,6 +96,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets, Brute-102-windows-x64 | Out-Null
+          if (Test-Path "build/*_artefacts/Release/VST") {
+            Copy-Item -Recurse -Force build/*_artefacts/Release/VST/* Brute-102-windows-x64/
+          }
           Copy-Item -Recurse -Force build/*_artefacts/Release/VST3/* Brute-102-windows-x64/
           Copy-Item -Recurse -Force build/*_artefacts/Release/Standalone/* Brute-102-windows-x64/
           Compress-Archive -Path Brute-102-windows-x64 -DestinationPath release-assets/Brute-102-windows-x64.zip -Force
@@ -148,6 +153,7 @@ jobs:
           fi
           cmake -S "$SRC_DIR" -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBRUTE102_BUILD_VST2=OFF \
             -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.cache/juce"
 
       - name: Build Brute-102
@@ -156,6 +162,7 @@ jobs:
       - name: Package Linux release archive
         run: |
           mkdir -p release-assets Brute-102-linux-x86_64
+          for d in build/*_artefacts/Release/VST; do [ -d "$d" ] && cp -a "$d"/* Brute-102-linux-x86_64/; done
           cp -a build/*_artefacts/Release/VST3/* Brute-102-linux-x86_64/
           cp -a build/*_artefacts/Release/Standalone/* Brute-102-linux-x86_64/
           tar -czf release-assets/Brute-102-linux-x86_64.tar.gz Brute-102-linux-x86_64
